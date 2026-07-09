@@ -1,0 +1,106 @@
+version: "3.8"
+
+services:
+
+
+  rooms-db:
+    image: postgres:16-alpine
+    container_name: hotel-rooms-db
+    environment:
+      POSTGRES_DB: rooms_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - rooms-db-data:/var/lib/postgresql/data
+    networks:
+      - hotel-los-andes-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rooms_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  reservations-db:
+    image: postgres:16-alpine
+    container_name: hotel-reservations-db
+    environment:
+      POSTGRES_DB: reservations_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - reservations-db-data:/var/lib/postgresql/data
+    networks:
+      - hotel-los-andes-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reservations_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  svc-rooms:
+    build:
+      context: ./svc-rooms
+      dockerfile: Dockerfile
+    container_name: hotel-svc-rooms
+    environment:
+      DB_HOST: rooms-db
+      DB_PORT: 5432
+      DB_NAME: rooms_db
+      DB_USER: postgres
+      DB_PASS: postgres
+    ports:
+      - "8081:8081"
+    networks:
+      - hotel-los-andes-network
+    depends_on:
+      rooms-db:
+        condition: service_healthy
+
+  svc-reservations:
+    build:
+      context: ./svc-reservations
+      dockerfile: Dockerfile
+    container_name: hotel-svc-reservations
+    environment:
+      DB_HOST: reservations-db
+      DB_PORT: 5432
+      DB_NAME: reservations_db
+      DB_USER: postgres
+      DB_PASS: postgres
+      ROOMS_SERVICE_URL: http://svc-rooms:8081
+    ports:
+      - "8082:8082"
+    networks:
+      - hotel-los-andes-network
+    depends_on:
+      reservations-db:
+        condition: service_healthy
+      svc-rooms:
+        condition: service_started
+
+  # Nginx - API Gateway, enruta segun la URI
+  nginx-gateway:
+    image: nginx:alpine
+    container_name: hotel-nginx-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - hotel-los-andes-network
+    depends_on:
+      - svc-rooms
+      - svc-reservations
+
+volumes:
+  rooms-db-data:
+  reservations-db-data:
+
+networks:
+  hotel-los-andes-network:
+    driver: bridge
